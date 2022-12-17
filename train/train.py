@@ -596,7 +596,7 @@ def train():
     
     # In this version, parallel level should be manually set in the code.
     # The example if for training with 2 GPUs
-    n_parallel = 2
+    n_parallel = 1
     net = nn.DataParallel(Net((args.batchsize//n_parallel, 256, 256, 3),
               (8//n_parallel, 256, 256, 3)).to(device))
 
