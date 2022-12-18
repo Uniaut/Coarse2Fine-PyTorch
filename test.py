@@ -43,9 +43,9 @@ if __name__ == "__main__":
     images = glob.glob(os.path.join(args.images, '*.png'))
 
     for image in images:
-        args['input'] = image
-        args['output'] = image.replace('.png', '.bin')
+        args.input = image
+        args.output = image.replace('.png', '.bin')
         compress_low(args)
-        args['input'] = image
-        args['output'] = image.replace('.png', 'recover.png')
+        args.input = image
+        args.output = image.replace('.png', 'recover.png')
         decompress_low(args)
