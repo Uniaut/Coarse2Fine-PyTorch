@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # Load images
     images = glob.glob(os.path.join(args.images, '*.png'))
-
+    images = [image for image in images if 'recover' not in image]
     errors = []
     bpp = []
     for image in images:
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         compress_low(args)
 
         args.input = image.replace('.png', '.bin')
-        args.output = image.replace('.png', 'recover.png')
+        args.output = image.replace('.png', '_recover.png')
         print("Decompressing: " + image)
         decompress_low(args)
 
