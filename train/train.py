@@ -346,9 +346,239 @@ def washed(d, device=torch.device('cuda')):
 # Stage 2: train the whole network w/o info-agg sub-network
 # Stage 3: disable the final layer of the synthesis transform and enable info-agg net
 # Stage 4: End-to-end train the whole network w/o the helping (auxillary) loss
-class Net(nn.Module):
+class NetLow(nn.Module):
     def __init__(self, train_size=(1,256,256,3), test_size=(1,256,256,3)):
-        super(Net, self).__init__()
+        super(NetLow, self).__init__()
+        self.train_size = train_size
+        self.test_size = test_size
+
+        self.a_model = analysisTransformModel(3, [192, 192, 192, 192])
+        self.s_model = synthesisTransformModel(192, [192, 192, 192, 3])
+        
+        self.ha_model_1 = h_analysisTransformModel(64*4, [64*4, 32*4, 32*4], [1, 1, 1])
+        self.hs_model_1 = h_synthesisTransformModel(32*4, [64*4, 64*4, 64*4], [1, 1, 1])
+
+        self.ha_model_2 = h_analysisTransformModel(192, [384, 192*4, 64*4], [1, 1, 1])
+        self.hs_model_2 = h_synthesisTransformModel(64*4, [192*4, 192*4, 192], [1, 1, 1])
+
+        self.entropy_bottleneck_z1 = GaussianModel()
+        self.entropy_bottleneck_z2 = GaussianModel()
+        self.entropy_bottleneck_z3 = GaussianModel()
+        b, h, w, c = train_size
+        tb, th, tw, tc = test_size
+
+        self.h1_sigma = torch.nn.Parameter(torch.ones(
+            (1, 32*4, 1, 1), dtype=torch.float32, requires_grad=True))
+        self.register_parameter('get_h1_sigma', self.h1_sigma)
+
+        self.v_z2_sigma = torch.nn.Parameter(torch.ones(
+            (1, 64*4, 1, 1), dtype=torch.float32, requires_grad=True))
+        self.register_parameter('z2_sigma', self.v_z2_sigma)
+
+        self.prediction_model_2 = PredictionModel(
+            in_dim=64*4, dim=64*4, outdim=64*4*2)
+
+        self.prediction_model_3 = PredictionModel(
+            in_dim=384, dim=384, outdim=384*2)
+
+        self.sampler_2 = NeighborSample((b, 64*4, h//2//8, w//2//8))
+        self.sampler_3 = NeighborSample((b, 384, h//8, w//8))
+
+        self.side_recon_model = SideInfoReconModel(384+64, num_filters=384)
+
+        self.proj_head_z3 = ProjHead(384, 384)
+        self.proj_head_z2 = ProjHead(64*4, 64*4)
+    
+    def stage1_params(self):
+        params = []
+        for v in self.a_model.parameters():
+            params.append(v)
+        for v in self.s_model.parameters():
+            params.append(v)
+
+        for v in self.ha_model_2.parameters():
+            params.append(v)
+        for v in self.hs_model_2.parameters():
+            params.append(v)
+        for v in self.proj_head_z3.parameters():
+            params.append(v)
+        for v in self.prediction_model_3.parameters():
+            params.append(v)
+        params.append(self.z2_sigma)
+
+        return params
+    
+    def stage2_params(self):
+        params = []
+
+        for v in self.a_model.parameters():
+            params.append(v)
+        for v in self.s_model.parameters():
+            params.append(v)
+
+        for v in self.ha_model_2.parameters():
+            params.append(v)
+        for v in self.hs_model_2.parameters():
+            params.append(v)
+        for v in self.proj_head_z3.parameters():
+            params.append(v)
+        for v in self.prediction_model_3.parameters():
+            params.append(v)
+
+        for v in self.ha_model_1.parameters():
+            params.append(v)
+        for v in self.hs_model_1.parameters():
+            params.append(v)
+        for v in self.proj_head_z2.parameters():
+            params.append(v)
+        for v in self.prediction_model_2.parameters():
+            params.append(v)
+        params.append(self.get_h1_sigma)
+
+        return params
+
+    # We adopt a multi-stage training procedure
+    def forward(self, inputs, mode='train', stage=1):
+        b, h, w, c = self.train_size
+        tb, th, tw, tc = self.test_size
+
+        z3 = self.a_model(inputs)
+        noise = torch.rand_like(z3) - 0.5
+        z3_noisy = z3 + noise
+        z3_rounded = bypass_round(z3)
+
+        z2 = self.ha_model_2(z3_rounded)
+        noise = torch.rand_like(z2) - 0.5
+        z2_noisy = z2 + noise
+        z2_rounded = bypass_round(z2)
+
+        if stage > 1: # h1 enabled after stage 2
+            z1 = self.ha_model_1(z2_rounded)
+            noise = torch.rand_like(z1) - 0.5
+            z1_noisy = z1 + noise
+            z1_rounded = bypass_round(z1)
+
+            z1_sigma = torch.abs(self.get_h1_sigma)
+            z1_mu = torch.zeros_like(z1_sigma)
+
+            h1 = self.hs_model_1(z1_rounded)
+            if stage < 4:
+                proj_z2 = self.proj_head_z2(h1)
+        
+        h2 = self.hs_model_2(z2_rounded)
+        if stage < 4: # helping loss enabled before stage 4
+            proj_z3 = self.proj_head_z3(h2)
+
+        if mode == 'train':
+            if stage > 1: # when h1 enabled after stage 2
+                z1_likelihoods = self.entropy_bottleneck_z1(
+                    z1_noisy, z1_sigma, z1_mu)
+
+                z2_mu, z2_sigma = self.prediction_model_2(
+                    (b, 64*4, h//2//16, w//2//16), h1, self.sampler_2)
+            else:
+                z2_sigma = torch.abs(self.z2_sigma)
+                z2_mu = torch.zeros_like(z2_sigma)
+
+            z2_likelihoods = self.entropy_bottleneck_z2(
+                z2_noisy, z2_sigma, z2_mu)
+
+            z3_mu, z3_sigma = self.prediction_model_3(
+                (b, 384, h//16, w//16), h2, self.sampler_3)
+
+            z3_likelihoods = self.entropy_bottleneck_z3(
+                z3_noisy, z3_sigma, z3_mu)
+        else:
+            if stage > 1: # when h1 enabled after stage 2
+                z1_likelihoods = self.entropy_bottleneck_z1(
+                    z1_rounded, z1_sigma, z1_mu)
+
+                z2_mu, z2_sigma = self.prediction_model_2(
+                    (tb, 64*4, th//2//16, tw//2//16), h1, self.sampler_2)
+            else:
+                z2_sigma = torch.abs(self.z2_sigma)
+                z2_mu = torch.zeros_like(z2_sigma)
+
+            z2_likelihoods = self.entropy_bottleneck_z2(
+                z2_rounded, z2_sigma, z2_mu)
+
+            z3_mu, z3_sigma = self.prediction_model_3(
+                (tb, 384, th//16, tw//16), h2, self.sampler_3)
+
+            z3_likelihoods = self.entropy_bottleneck_z3(
+                z3_rounded, z3_sigma, z3_mu)
+
+        if stage <= 2: # when side recon model not enabled
+            pf, y = self.s_model(z3_rounded)
+            x_tilde = y
+        elif stage >= 3: # side-info recon model on
+            pf, y = self.s_model(z3_rounded)
+            x_tilde = self.side_recon_model(pf, h2, h1)
+
+        num_pixels = inputs.size()[0] * h * w
+
+        if mode == 'train':
+
+            train_mse = torch.mean((inputs - x_tilde) ** 2, [0, 1, 2, 3])
+            train_mse *= 255**2
+
+            if stage == 1: # RDO on h2 and h3
+                bpp_list = [torch.sum(torch.log(l), [0, 1, 2, 3]) / (-np.log(2) * num_pixels)
+                        for l in [z2_likelihoods, z3_likelihoods]]
+                train_bpp = bpp_list[0] + bpp_list[1]
+                train_aux3 = torch.nn.MSELoss(reduction='mean')(z3.detach(), proj_z3)
+                train_loss = args.lmbda * train_mse + train_bpp + train_aux3
+
+            elif stage == 2: # Full RDO on h1, h2 and h3
+                bpp_list = [torch.sum(torch.log(l), [0, 1, 2, 3]) / (-np.log(2) * num_pixels)
+                        for l in [z1_likelihoods, z2_likelihoods, z3_likelihoods]]
+                train_bpp = bpp_list[0] + bpp_list[1] + bpp_list[2]
+                train_aux3 = torch.nn.MSELoss(reduction='mean')(z3.detach(), proj_z3)
+                train_aux2 = torch.nn.MSELoss(reduction='mean')(z2.detach(), proj_z2)
+                train_loss = args.lmbda * train_mse + train_bpp + train_aux2 + train_aux3
+            elif stage == 3: # with side recon model; full RDO
+                bpp_list = [torch.sum(torch.log(l), [0, 1, 2, 3]) / (-np.log(2) * num_pixels)
+                            for l in [z1_likelihoods, z2_likelihoods, z3_likelihoods]]
+                train_bpp = bpp_list[0] + bpp_list[1] + bpp_list[2]
+                train_aux3 = torch.nn.MSELoss(reduction='mean')(z3.detach(), proj_z3)
+                train_aux2 = torch.nn.MSELoss(reduction='mean')(z2.detach(), proj_z2)
+                train_loss = args.lmbda * train_mse + train_bpp + train_aux2 + train_aux3
+            else: # no aux loss
+                bpp_list = [torch.sum(torch.log(l), [0, 1, 2, 3]) / (-np.log(2) * num_pixels)
+                            for l in [z1_likelihoods, z2_likelihoods, z3_likelihoods]]
+                train_bpp = bpp_list[0] + bpp_list[1] + bpp_list[2]
+                train_loss = args.lmbda * train_mse + train_bpp
+
+            return train_loss, train_bpp, train_mse
+
+        elif mode == 'test':
+            test_num_pixels = inputs.size()[0] * 256 ** 2
+
+            if stage == 1:
+                eval_bpp = torch.sum(torch.log(z3_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels) + torch.sum(torch.log(z2_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                
+                bpp3 = torch.sum(torch.log(z3_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                bpp2 = torch.sum(torch.log(z2_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                bpp1 = torch.zeros_like(bpp2)
+                
+            else:
+                eval_bpp = torch.sum(torch.log(z3_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels) + torch.sum(torch.log(z2_likelihoods), [
+                    0, 1, 2, 3]) / (-np.log(2) * test_num_pixels) + torch.sum(torch.log(z1_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                
+                bpp3 = torch.sum(torch.log(z3_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                bpp2 = torch.sum(torch.log(z2_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+                bpp1 = torch.sum(torch.log(z1_likelihoods), [0, 1, 2, 3]) / (-np.log(2) * test_num_pixels)
+
+            # Bring both images back to 0..255 range.
+            gt = torch.round((inputs + 1) * 127.5)
+            x_hat = torch.clamp((x_tilde + 1) * 127.5, 0, 255)
+            x_hat = torch.round(x_hat).float()
+            v_mse = torch.mean((x_hat - gt) ** 2, [1, 2, 3])
+            v_psnr = torch.mean(20 * torch.log10(255 / torch.sqrt(v_mse)), 0)
+            return eval_bpp, v_psnr, x_hat, bpp1, bpp2, bpp3
+class NetHigh(nn.Module):
+    def __init__(self, train_size=(1,256,256,3), test_size=(1,256,256,3)):
+        super(NetHigh, self).__init__()
         self.train_size = train_size
         self.test_size = test_size
         self.a_model = analysisTransformModel(
@@ -604,7 +834,11 @@ def train():
     # In this version, parallel level should be manually set in the code.
     # The example if for training with 2 GPUs
     n_parallel = 1
-    net = nn.DataParallel(Net((args.batchsize//n_parallel, 256, 256, 3),
+    if args.size == "low":
+        net = nn.DataParallel(NetLow((args.batchsize//n_parallel, 256, 256, 3),
+              (8//n_parallel, 256, 256, 3)).to(device))
+    else:
+        net = nn.DataParallel(NetHigh((args.batchsize//n_parallel, 256, 256, 3),
               (8//n_parallel, 256, 256, 3)).to(device))
 
     def weight_init(m):
@@ -711,11 +945,8 @@ if __name__ == "__main__":
         "command", choices=["train"],
         help="What to do?")
     parser.add_argument(
-        "input", nargs="?",
-        help="Input filename.")
-    parser.add_argument(
-        "output", nargs="?",
-        help="Output filename.")
+        "size", choices=["low", "high"],
+        help="Network Size?")
     parser.add_argument(
         "--num_filters", type=int, default=192,
         help="Number of filters per layer.")
