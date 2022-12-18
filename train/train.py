@@ -814,10 +814,10 @@ class NetHigh(nn.Module):
 
 def train():
     epoch_config = {
-        'stage2': 30,
-        'stage3': 60,
-        'stage4': 90,
-        'total': 120
+        'stage2': 20,
+        'stage3': 40,
+        'stage4': 60,
+        'total': 80
     }
 
     device = torch.device('cuda')
