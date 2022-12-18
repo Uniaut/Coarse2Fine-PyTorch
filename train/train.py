@@ -598,7 +598,7 @@ def train():
         ])
     )
     training_loader = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batchsize, shuffle=True, num_workers=8
+        train_data, batch_size=args.batchsize, shuffle=True, num_workers=12
     )
     
     # In this version, parallel level should be manually set in the code.
@@ -683,7 +683,8 @@ def train():
         )
         )
 
-        if epoch % 100 == 0:
+        n_save_interval = 10
+        if epoch % n_save_interval == n_save_interval - 1:
             print('[INFO] Saving')
             if not os.path.isdir(args.checkpoint_dir):
                 os.mkdir(args.checkpoint_dir)
