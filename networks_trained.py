@@ -877,7 +877,7 @@ def decompress_low(args):
       if args.with_iar:
         x_tilde = net.decode(s4_in, 3)
       else:
-        x_tilde = s4_in['z3_rounded']
+        x_tilde = s4_in['z3_rounded'].cpu()
       return x_tilde
 
   hs, ws = get_partition(padded_h, padded_w)
