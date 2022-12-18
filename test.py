@@ -42,12 +42,26 @@ if __name__ == "__main__":
     # Load images
     images = glob.glob(os.path.join(args.images, '*.png'))
 
+    errors = []
+    bpp = []
     for image in images:
         args.input = image
         args.output = image.replace('.png', '.bin')
         print("Compressing: " + image)
         compress_low(args)
+
         args.input = image.replace('.png', '.bin')
         args.output = image.replace('.png', 'recover.png')
         print("Decompressing: " + image)
         decompress_low(args)
+
+        img = Image.open(image)
+        img_recover = Image.open(image.replace('.png', 'recover.png'))
+        # error = mse
+        error = np.mean((np.array(img) - np.array(img_recover)) ** 2)
+        errors.append(error)
+        bin_size = os.path.getsize(image.replace('.png', '.bin'))
+        bpp.append(bin_size * 8 / img.width / img.height)
+    
+    print("MSE: ", np.mean(errors))
+    print("BPP: ", np.mean(bpp))
