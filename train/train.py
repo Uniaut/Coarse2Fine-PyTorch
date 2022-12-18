@@ -379,14 +379,14 @@ class NetLow(nn.Module):
             in_dim=64*4, dim=64*4, outdim=64*4*2)
 
         self.prediction_model_3 = PredictionModel(
-            in_dim=384, dim=384, outdim=384*2)
+            in_dim=192, dim=192, outdim=192*2)
 
         self.sampler_2 = NeighborSample((b, 64*4, h//2//8, w//2//8))
-        self.sampler_3 = NeighborSample((b, 384, h//8, w//8))
+        self.sampler_3 = NeighborSample((b, 192, h//8, w//8))
 
-        self.side_recon_model = SideInfoReconModel(384+64, num_filters=384)
+        self.side_recon_model = SideInfoReconModel(192+64, num_filters=192)
 
-        self.proj_head_z3 = ProjHead(384, 384)
+        self.proj_head_z3 = ProjHead(192, 192)
         self.proj_head_z2 = ProjHead(64*4, 64*4)
     
     def stage1_params(self):
@@ -484,7 +484,7 @@ class NetLow(nn.Module):
                 z2_noisy, z2_sigma, z2_mu)
 
             z3_mu, z3_sigma = self.prediction_model_3(
-                (b, 384, h//16, w//16), h2, self.sampler_3)
+                (b, 192, h//16, w//16), h2, self.sampler_3)
 
             z3_likelihoods = self.entropy_bottleneck_z3(
                 z3_noisy, z3_sigma, z3_mu)
@@ -503,7 +503,7 @@ class NetLow(nn.Module):
                 z2_rounded, z2_sigma, z2_mu)
 
             z3_mu, z3_sigma = self.prediction_model_3(
-                (tb, 384, th//16, tw//16), h2, self.sampler_3)
+                (tb, 192, th//16, tw//16), h2, self.sampler_3)
 
             z3_likelihoods = self.entropy_bottleneck_z3(
                 z3_rounded, z3_sigma, z3_mu)
