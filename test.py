@@ -55,13 +55,15 @@ if __name__ == "__main__":
         print("Decompressing: " + image)
         decompress_low(args)
 
+        # error = psnr
         img = Image.open(image)
         img_recover = Image.open(image.replace('.png', 'recover.png'))
-        # error = mse
-        error = np.mean((np.array(img) - np.array(img_recover)) ** 2)
-        errors.append(error)
+        mse = np.mean((np.array(img) - np.array(img_recover)) ** 2)
+        psnr = 20 * math.log10(255 / math.sqrt(mse))
+        errors.append(psnr)
+        ## bpp
         bin_size = os.path.getsize(image.replace('.png', '.bin'))
         bpp.append(bin_size * 8 / img.width / img.height)
     
-    print("MSE: ", np.mean(errors))
+    print("PSNR: ", np.mean(errors))
     print("BPP: ", np.mean(bpp))
