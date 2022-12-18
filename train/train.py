@@ -583,6 +583,13 @@ class Net(nn.Module):
             return eval_bpp, v_psnr, x_hat, bpp1, bpp2, bpp3
 
 def train():
+    epoch_config = {
+        'stage2': 200,
+        'stage3': 300,
+        'stage4': 400,
+        'total': 500
+    }
+
     device = torch.device('cuda')
     train_data = DIV2KDataset(
         args.train_glob, transform=tv.transforms.Compose([
@@ -630,7 +637,7 @@ def train():
     stage = 1
     st_epoch = 0
     ###################
-    for epoch in range(st_epoch, 5500):
+    for epoch in range(st_epoch, epoch_config["total"]):
         start_time = time.time()
         list_train_loss = 0.
         list_train_bpp = 0.
@@ -686,11 +693,11 @@ def train():
             torch.save(opt_s1.state_dict(), './%s/latest_opts1.ckpt' % (args.checkpoint_dir))
             torch.save(opt_s2.state_dict(), './%s/latest_opts2.ckpt' % (args.checkpoint_dir))
         
-        if epoch == 1000:
+        if epoch == epoch_config["stage2"]:
             stage = 2
-        elif epoch == 1200:
+        elif epoch == epoch_config["stage3"]:
             stage = 3
-        elif epoch == 1300:
+        elif epoch == epoch_config["stage4"]:
             stage = 4
         if stage >= 3:
             sch.step()

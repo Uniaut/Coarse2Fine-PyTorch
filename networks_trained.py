@@ -874,7 +874,10 @@ def decompress_low(args):
       z3_hat[...] = coeffs.reshape(z3_hat.shape).astype(np.float32) - 511
 
       s4_in = {'z3_rounded':torch.tensor(z3_hat).to(device)}
-      x_tilde = net.decode(s4_in, 3)
+      if False:
+        x_tilde = net.decode(s4_in, 3)
+      else:
+        x_tilde = s4_in['z3_rounded']
       return x_tilde
 
   hs, ws = get_partition(padded_h, padded_w)
