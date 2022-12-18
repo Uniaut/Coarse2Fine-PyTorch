@@ -49,6 +49,11 @@ if __name__ == "__main__":
       "--save_recon", default=0, type=int,
       help="Whether to save reconstructed image in the encoding process."
   )
+  # argument: --with_iar
+  parser.add_argument(
+      "--with_iar", default=1, type=int,
+      help="Whether to use IAR in the encoding process. 0: no IAR, 1: IAR"
+  )
 
   parser.add_argument(
       "--device", default='cpu', type=str,
