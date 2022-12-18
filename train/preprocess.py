@@ -23,4 +23,4 @@ if __name__ == "__main__":
         print(image)
         img = Image.open(image)
         img_resize = img.resize((int(img.width / 2), int(img.height / 2)))
-        np.save(image.replace('.png', '_half.png'), img_resize)    
+        img_resize.save(image.replace('.png', '_half.png'))
