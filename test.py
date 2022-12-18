@@ -45,7 +45,9 @@ if __name__ == "__main__":
     for image in images:
         args.input = image
         args.output = image.replace('.png', '.bin')
+        print("Compressing: " + image)
         compress_low(args)
-        args.input = image
+        args.input = image.replace('.png', '.bin')
         args.output = image.replace('.png', 'recover.png')
+        print("Decompressing: " + image)
         decompress_low(args)
