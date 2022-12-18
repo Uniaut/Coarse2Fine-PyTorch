@@ -593,9 +593,7 @@ EXE_ARITH = './module_arithmeticcoding'
 def compress_low(args):
   """Compresses an image."""
   global device
-  mode = 'low'
-  if args.qp > 3:
-    mode = 'high'
+  mode = args.size
   device = torch.device(args.device)
   from PIL import Image
   # Load input image and add batch dimension.
@@ -608,7 +606,7 @@ def compress_low(args):
 
   qp = args.qp
   model_type = args.model_type
-  print(f'model_type: {model_type}, qp: {qp}')
+  print(f'model_type: {model_type}, mode: {mode}')
  
 
   buf = qp << 1
