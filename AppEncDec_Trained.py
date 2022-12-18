@@ -38,8 +38,7 @@ if __name__ == "__main__":
       "output", nargs="?",
       help="Output filename.")
   parser.add_argument(
-      "size", choices=["high", "low"],
-      help="size of model."
+      "--qp", default=1, type=int,
   )
   parser.add_argument(
       "--model_type", default=0, type=int,
